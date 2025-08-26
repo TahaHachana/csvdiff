@@ -64,7 +64,7 @@ csvdiff --file1 file1.csv --file2 file2.csv --key id --no-truncate
 ### Large Dataset Example
 ```bash
 # Compare large CSV files with smart truncation (recommended for files with thousands of rows)
-csvdiff --file1 mozenda.csv --file2 dexi.csv --key sku --key size --key colour --max-rows 15
+csvdiff --file1 dataset_v1.csv --file2 dataset_v2.csv --key sku --key size --key colour --max-rows 15
 ```
 
 ### Excel Report Generation
