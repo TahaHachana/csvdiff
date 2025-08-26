@@ -25,6 +25,18 @@ struct Args {
     /// Columns to ignore when comparing
     #[arg(short = 'i', long)]
     ignore: Vec<String>,
+
+    /// Maximum number of rows to display (default: 20)
+    #[arg(long, default_value = "20")]
+    max_rows: usize,
+
+    /// Maximum width for cell content (default: 30)
+    #[arg(long, default_value = "30")]
+    max_cell_width: usize,
+
+    /// Show all differences without truncation
+    #[arg(long, default_value = "false")]
+    no_truncate: bool,
 }
 
 fn read_csv_to_map(
@@ -66,6 +78,79 @@ struct DiffRow {
     file2: String,
 }
 
+fn truncate_string(s: &str, max_width: usize) -> String {
+    if s.len() <= max_width {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_width.saturating_sub(3)])
+    }
+}
+
+fn create_summary_table(diffs: Vec<DiffRow>, max_rows: usize, max_cell_width: usize, no_truncate: bool) -> String {
+    if no_truncate {
+        return Table::new(diffs).to_string();
+    }
+
+    let total_diffs = diffs.len();
+    
+    if total_diffs == 0 {
+        return "✅ No differences found.".to_string();
+    }
+
+    // Truncate cell content
+    let mut truncated_diffs: Vec<DiffRow> = diffs
+        .into_iter()
+        .map(|diff| DiffRow {
+            key: truncate_string(&diff.key, max_cell_width),
+            column: truncate_string(&diff.column, max_cell_width),
+            file1: truncate_string(&diff.file1, max_cell_width),
+            file2: truncate_string(&diff.file2, max_cell_width),
+        })
+        .collect();
+
+    // Handle row truncation
+    let mut result = String::new();
+    
+    if total_diffs <= max_rows {
+        result.push_str(&Table::new(truncated_diffs).to_string());
+    } else {
+        // Take first half and last few rows, with separator in between
+        let head_rows = max_rows / 2;
+        let tail_rows = max_rows - head_rows - 1; // -1 for the separator row
+        
+        let mut display_rows = Vec::new();
+        
+        // Add head rows
+        display_rows.extend(truncated_diffs.drain(..head_rows));
+        
+        // Add separator row
+        display_rows.push(DiffRow {
+            key: "...".to_string(),
+            column: format!("... ({} more rows) ...", total_diffs - max_rows),
+            file1: "...".to_string(),
+            file2: "...".to_string(),
+        });
+        
+        // Add tail rows
+        if tail_rows > 0 && truncated_diffs.len() >= tail_rows {
+            let start_index = truncated_diffs.len() - tail_rows;
+            display_rows.extend(truncated_diffs.drain(start_index..));
+        }
+        
+        result.push_str(&Table::new(display_rows).to_string());
+    }
+    
+    // Add summary information
+    if total_diffs > max_rows {
+        result.push_str(&format!("\n\n📊 Summary: {} total differences found", total_diffs));
+        result.push_str(&format!("\n   Showing {} rows (use --max-rows to adjust or --no-truncate to show all)", max_rows));
+    } else {
+        result.push_str(&format!("\n\n📊 Total differences: {}", total_diffs));
+    }
+    
+    result
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
@@ -101,33 +186,45 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             (Some(r1), None) => {
+                let preview = r1
+                    .iter()
+                    .collect::<Vec<_>>()
+                    .join(",")
+                    .chars()
+                    .take(50)
+                    .collect::<String>();
+                let preview = if preview.len() >= 50 { 
+                    format!("{}...", &preview[..47]) 
+                } else { 
+                    preview 
+                };
+                
                 diffs.push(DiffRow {
                     key: key.clone(),
                     column: "[missing in file2]".into(),
-                    file1: r1
-                        .iter()
-                        .collect::<Vec<_>>()
-                        .join(",")
-                        .chars()
-                        .take(20)
-                        .collect::<String>()
-                        + "...",
+                    file1: preview,
                     file2: "".into(),
                 });
             }
             (None, Some(r2)) => {
+                let preview = r2
+                    .iter()
+                    .collect::<Vec<_>>()
+                    .join(",")
+                    .chars()
+                    .take(50)
+                    .collect::<String>();
+                let preview = if preview.len() >= 50 { 
+                    format!("{}...", &preview[..47]) 
+                } else { 
+                    preview 
+                };
+                
                 diffs.push(DiffRow {
                     key: key.clone(),
                     column: "[missing in file1]".into(),
                     file1: "".into(),
-                    file2: r2
-                        .iter()
-                        .collect::<Vec<_>>()
-                        .join(",")
-                        .chars()
-                        .take(20)
-                        .collect::<String>()
-                        + "...",
+                    file2: preview,
                 });
             }
             (None, None) => unreachable!(),
@@ -137,7 +234,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if diffs.is_empty() {
         println!("✅ No differences found.");
     } else {
-        println!("{}", Table::new(diffs));
+        println!("{}", create_summary_table(diffs, args.max_rows, args.max_cell_width, args.no_truncate));
     }
 
     Ok(())
