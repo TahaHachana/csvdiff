@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use csv::{ReaderBuilder, StringRecord};
 use tabled::{Table, Tabled};
+use rust_xlsxwriter::{Workbook, Worksheet, Format};
 
 /// Compare two CSV files based on key column(s), with options to ignore some columns.
 #[derive(Parser, Debug)]
@@ -37,6 +38,10 @@ struct Args {
     /// Show all differences without truncation
     #[arg(long, default_value = "false")]
     no_truncate: bool,
+
+    /// Generate Excel report with summary, headers comparison, and data differences
+    #[arg(long)]
+    excel_output: Option<String>,
 }
 
 fn read_csv_to_map(
@@ -70,7 +75,7 @@ fn read_csv_to_map(
     Ok((headers.iter().map(|s| s.to_string()).collect(), map))
 }
 
-#[derive(Tabled)]
+#[derive(Tabled, Clone)]
 struct DiffRow {
     key: String,
     column: String,
@@ -149,6 +154,216 @@ fn create_summary_table(diffs: Vec<DiffRow>, max_rows: usize, max_cell_width: us
     }
     
     result
+}
+
+fn generate_excel_report(
+    file1_path: &PathBuf,
+    file2_path: &PathBuf,
+    headers1: &[String],
+    headers2: &[String],
+    diffs: &[DiffRow],
+    output_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    let mut workbook = Workbook::new();
+    
+    // Create formats
+    let header_format = Format::new().set_bold().set_background_color("CCCCCC");
+    let title_format = Format::new().set_bold().set_font_size(14);
+    
+    // Sheet 1: General Summary
+    let mut summary_sheet = workbook.add_worksheet();
+    summary_sheet.set_name("Summary")?;
+    
+    create_summary_sheet(&mut summary_sheet, file1_path, file2_path, headers1, headers2, diffs, &title_format, &header_format)?;
+    
+    // Sheet 2: Headers Comparison  
+    let mut headers_sheet = workbook.add_worksheet();
+    headers_sheet.set_name("Headers Comparison")?;
+    
+    create_headers_sheet(&mut headers_sheet, headers1, headers2, &title_format, &header_format)?;
+    
+    // Sheet 3: Data Differences
+    let mut data_sheet = workbook.add_worksheet();
+    data_sheet.set_name("Data Differences")?;
+    
+    create_data_sheet(&mut data_sheet, diffs, &title_format, &header_format)?;
+    
+    workbook.save(output_path)?;
+    println!("📄 Excel report generated: {}", output_path);
+    
+    Ok(())
+}
+
+fn create_summary_sheet(
+    sheet: &mut Worksheet,
+    file1_path: &PathBuf,
+    file2_path: &PathBuf,
+    headers1: &[String],
+    headers2: &[String],
+    diffs: &[DiffRow],
+    title_format: &Format,
+    header_format: &Format,
+) -> Result<(), Box<dyn Error>> {
+    let mut row = 0;
+    
+    // Title
+    sheet.write_with_format(row, 0, "CSV Comparison Summary", title_format)?;
+    row += 2;
+    
+    // File information
+    sheet.write_with_format(row, 0, "File 1:", header_format)?;
+    sheet.write(row, 1, file1_path.to_string_lossy())?;
+    row += 1;
+    
+    sheet.write_with_format(row, 0, "File 2:", header_format)?;
+    sheet.write(row, 1, file2_path.to_string_lossy())?;
+    row += 2;
+    
+    // Statistics
+    sheet.write_with_format(row, 0, "Comparison Statistics", header_format)?;
+    row += 1;
+    
+    sheet.write(row, 0, "Total Differences:")?;
+    sheet.write(row, 1, diffs.len() as f64)?;
+    row += 1;
+    
+    sheet.write(row, 0, "File 1 Columns:")?;
+    sheet.write(row, 1, headers1.len() as f64)?;
+    row += 1;
+    
+    sheet.write(row, 0, "File 2 Columns:")?;
+    sheet.write(row, 1, headers2.len() as f64)?;
+    row += 1;
+    
+    sheet.write(row, 0, "Headers Match:")?;
+    sheet.write(row, 1, if headers1 == headers2 { "Yes" } else { "No" })?;
+    row += 2;
+    
+    // Difference breakdown
+    let mut missing_in_file1 = 0;
+    let mut missing_in_file2 = 0;
+    let mut data_differences = 0;
+    
+    for diff in diffs {
+        match diff.column.as_str() {
+            "[missing in file1]" => missing_in_file1 += 1,
+            "[missing in file2]" => missing_in_file2 += 1,
+            _ => data_differences += 1,
+        }
+    }
+    
+    sheet.write_with_format(row, 0, "Difference Breakdown", header_format)?;
+    row += 1;
+    
+    sheet.write(row, 0, "Data Differences:")?;
+    sheet.write(row, 1, data_differences as f64)?;
+    row += 1;
+    
+    sheet.write(row, 0, "Missing in File 1:")?;
+    sheet.write(row, 1, missing_in_file1 as f64)?;
+    row += 1;
+    
+    sheet.write(row, 0, "Missing in File 2:")?;
+    sheet.write(row, 1, missing_in_file2 as f64)?;
+    
+    // Auto-fit columns
+    sheet.set_column_width(0, 20)?;
+    sheet.set_column_width(1, 40)?;
+    
+    Ok(())
+}
+
+fn create_headers_sheet(
+    sheet: &mut Worksheet,
+    headers1: &[String],
+    headers2: &[String],
+    title_format: &Format,
+    header_format: &Format,
+) -> Result<(), Box<dyn Error>> {
+    let mut row = 0;
+    
+    // Title
+    sheet.write_with_format(row, 0, "Headers Comparison", title_format)?;
+    row += 2;
+    
+    // Create sets for comparison
+    let set1: HashSet<&String> = headers1.iter().collect();
+    let set2: HashSet<&String> = headers2.iter().collect();
+    
+    // Headers table
+    sheet.write_with_format(row, 0, "Column Name", header_format)?;
+    sheet.write_with_format(row, 1, "In File 1", header_format)?;
+    sheet.write_with_format(row, 2, "In File 2", header_format)?;
+    sheet.write_with_format(row, 3, "Status", header_format)?;
+    row += 1;
+    
+    // Get all unique headers
+    let all_headers: HashSet<&String> = set1.union(&set2).cloned().collect();
+    let mut headers_vec: Vec<&String> = all_headers.into_iter().collect();
+    headers_vec.sort();
+    
+    for header in headers_vec {
+        let in_file1 = set1.contains(header);
+        let in_file2 = set2.contains(header);
+        
+        sheet.write(row, 0, header)?;
+        sheet.write(row, 1, if in_file1 { "Yes" } else { "No" })?;
+        sheet.write(row, 2, if in_file2 { "Yes" } else { "No" })?;
+        
+        let status = match (in_file1, in_file2) {
+            (true, true) => "Match",
+            (true, false) => "Only in File 1",
+            (false, true) => "Only in File 2",
+            (false, false) => unreachable!(),
+        };
+        sheet.write(row, 3, status)?;
+        row += 1;
+    }
+    
+    // Auto-fit columns
+    sheet.set_column_width(0, 25)?;
+    sheet.set_column_width(1, 12)?;
+    sheet.set_column_width(2, 12)?;
+    sheet.set_column_width(3, 15)?;
+    
+    Ok(())
+}
+
+fn create_data_sheet(
+    sheet: &mut Worksheet,
+    diffs: &[DiffRow],
+    title_format: &Format,
+    header_format: &Format,
+) -> Result<(), Box<dyn Error>> {
+    let mut row = 0;
+    
+    // Title
+    sheet.write_with_format(row, 0, "Data Differences", title_format)?;
+    row += 2;
+    
+    // Headers
+    sheet.write_with_format(row, 0, "Key", header_format)?;
+    sheet.write_with_format(row, 1, "Column", header_format)?;
+    sheet.write_with_format(row, 2, "File 1 Value", header_format)?;
+    sheet.write_with_format(row, 3, "File 2 Value", header_format)?;
+    row += 1;
+    
+    // Data rows
+    for diff in diffs {
+        sheet.write(row, 0, &diff.key)?;
+        sheet.write(row, 1, &diff.column)?;
+        sheet.write(row, 2, &diff.file1)?;
+        sheet.write(row, 3, &diff.file2)?;
+        row += 1;
+    }
+    
+    // Auto-fit columns
+    sheet.set_column_width(0, 30)?;
+    sheet.set_column_width(1, 20)?;
+    sheet.set_column_width(2, 30)?;
+    sheet.set_column_width(3, 30)?;
+    
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -234,7 +449,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     if diffs.is_empty() {
         println!("✅ No differences found.");
     } else {
-        println!("{}", create_summary_table(diffs, args.max_rows, args.max_cell_width, args.no_truncate));
+        println!("{}", create_summary_table(diffs.clone(), args.max_rows, args.max_cell_width, args.no_truncate));
+    }
+
+    // Generate Excel report if requested
+    if let Some(excel_path) = &args.excel_output {
+        generate_excel_report(&args.file1, &args.file2, &headers1, &headers2, &diffs, excel_path)?;
     }
 
     Ok(())

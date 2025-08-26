@@ -6,6 +6,7 @@ A command-line utility to compare two CSV files based on specified key columns a
 
 *   **Flexible Comparison**: Compares two CSV files using single or composite key columns
 *   **Smart Truncation**: Automatically truncates large outputs (similar to Polars DataFrames) for better readability
+*   **Excel Report Generation**: Creates comprehensive Excel reports with summary, headers comparison, and data differences
 *   **Column Filtering**: Allows ignoring specific columns during comparison
 *   **Missing Row Detection**: Reports rows present in one file but not the other
 *   **Cell-Level Differences**: Reports cells with differing values for the same key
@@ -27,6 +28,7 @@ csvdiff --file1 <path_to_file1.csv> --file2 <path_to_file2.csv> --key <key_colum
 *   `--max-rows <NUMBER>`: Maximum number of rows to display (default: 20)
 *   `--max-cell-width <NUMBER>`: Maximum width for cell content (default: 30)
 *   `--no-truncate`: Show all differences without truncation
+*   `--excel-output <PATH>`: Generate Excel report with summary, headers comparison, and data differences
 *   `--help`: Prints help information
 *   `--version`: Prints version information
 
@@ -65,6 +67,15 @@ csvdiff --file1 file1.csv --file2 file2.csv --key id --no-truncate
 csvdiff --file1 mozenda.csv --file2 dexi.csv --key sku --key size --key colour --max-rows 15
 ```
 
+### Excel Report Generation
+```bash
+# Generate a comprehensive Excel report with three sheets
+csvdiff --file1 data1.csv --file2 data2.csv --key id --excel-output comparison_report.xlsx
+
+# Combine with other options for customized analysis
+csvdiff --file1 large_file1.csv --file2 large_file2.csv --key sku --key size --ignore timestamp --excel-output detailed_report.xlsx
+```
+
 ## Output Format
 
 The tool displays differences in a clear tabular format:
@@ -86,6 +97,33 @@ The tool displays differences in a clear tabular format:
    Showing 20 rows (use --max-rows to adjust or --no-truncate to show all)
 ```
 
+## Excel Reports
+
+When using `--excel-output`, the tool generates a comprehensive Excel workbook with three sheets:
+
+### 📋 Sheet 1: Summary
+- File paths and comparison metadata
+- Total difference counts and statistics
+- Header compatibility analysis
+- Breakdown by difference type (data changes vs missing rows)
+
+### 📊 Sheet 2: Headers Comparison
+- Side-by-side comparison of all column headers
+- Identification of columns unique to each file
+- Clear status indicators (Match, Only in File 1, Only in File 2)
+
+### 📈 Sheet 3: Data Differences
+- Complete list of all differences (no truncation)
+- Organized by key, column, and values from both files
+- Proper Excel formatting with headers and auto-sized columns
+- Suitable for further analysis, filtering, and sharing
+
+**Example Excel Output:**
+```bash
+csvdiff --file1 products.csv --file2 updated_products.csv --key sku --excel-output product_changes.xlsx
+# Generates: product_changes.xlsx with professional formatting
+```
+
 ## Performance
 
 The tool is optimized for large datasets:
@@ -93,6 +131,8 @@ The tool is optimized for large datasets:
 - ✅ Smart memory usage with streaming CSV processing
 - ✅ Polars-style truncation prevents terminal overflow
 - ✅ Configurable output limits for different use cases
+- ✅ Efficient Excel generation for comprehensive reporting
+- ✅ Tested with 45,000+ differences in production datasets
 
 ## Installation
 
@@ -115,6 +155,9 @@ The binary will be available at `target/release/csvdiff`.
 - **ETL Pipeline Testing**: Ensure data transformations preserve accuracy
 - **Database Synchronization**: Check differences between database exports
 - **Quality Assurance**: Verify data integrity after processing operations
+- **Business Reporting**: Generate professional Excel reports for stakeholders
+- **Audit Trails**: Document data changes with comprehensive Excel documentation
+- **Data Science Workflows**: Validate model training datasets and feature engineering
 
 ## Contributing
 
