@@ -7,6 +7,7 @@ A command-line utility to compare two CSV files based on specified key columns a
 *   **Flexible Comparison**: Compares two CSV files using single or composite key columns
 *   **Smart Truncation**: Automatically truncates large outputs (similar to Polars DataFrames) for better readability
 *   **Excel Report Generation**: Creates comprehensive Excel reports with summary, headers comparison, and data differences
+*   **Header Mismatch Handling**: Intelligently handles files with different column structures using name-based comparison
 *   **Column Filtering**: Allows ignoring specific columns during comparison
 *   **Missing Row Detection**: Reports rows present in one file but not the other
 *   **Cell-Level Differences**: Reports cells with differing values for the same key
@@ -76,6 +77,18 @@ csvdiff --file1 data1.csv --file2 data2.csv --key id --excel-output comparison_r
 csvdiff --file1 large_file1.csv --file2 large_file2.csv --key sku --key size --ignore timestamp --excel-output detailed_report.xlsx
 ```
 
+### Header Mismatch Handling
+```bash
+# Compare files with different column structures
+csvdiff --file1 old_format.csv --file2 new_format.csv --key id
+
+# The tool will automatically:
+# - Compare columns by name (not position)
+# - Show [column not in file1] for columns unique to file2
+# - Show [column not in file2] for columns unique to file1
+# - Only compare columns that exist in both files
+```
+
 ## Output Format
 
 The tool displays differences in a clear tabular format:
@@ -90,12 +103,24 @@ The tool displays differences in a clear tabular format:
 +--------------------------------+----------------------------+--------------------------------+------------------------------+
 | PROD003|S|Green                | [missing in file2]         | Complete product data...       |                              |
 +--------------------------------+----------------------------+--------------------------------+------------------------------+
+| PROD004|L|Black                | description                | [column not in file1]         | New product description      |
++--------------------------------+----------------------------+--------------------------------+------------------------------+
+| PROD005|M|Red                  | old_category               | Legacy category                | [column not in file2]        |
++--------------------------------+----------------------------+--------------------------------+------------------------------+
 | ...                            | ... (1,247 more rows) ... | ...                            | ...                          |
 +--------------------------------+----------------------------+--------------------------------+------------------------------+
 
 📊 Summary: 1,250 total differences found
    Showing 20 rows (use --max-rows to adjust or --no-truncate to show all)
 ```
+
+### Understanding the Output
+
+- **`[missing in file2]`**: Entire row exists only in file1
+- **`[missing in file1]`**: Entire row exists only in file2  
+- **`[column not in file1]`**: Column exists only in file2
+- **`[column not in file2]`**: Column exists only in file1
+- **Different values**: When both files have the column but values differ
 
 ## Excel Reports
 
@@ -133,6 +158,7 @@ The tool is optimized for large datasets:
 - ✅ Configurable output limits for different use cases
 - ✅ Efficient Excel generation for comprehensive reporting
 - ✅ Tested with 45,000+ differences in production datasets
+- ✅ Robust header mismatch handling with name-based column comparison
 
 ## Installation
 

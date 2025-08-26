@@ -373,8 +373,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (headers2, map2) = read_csv_to_map(args.file2.clone(), &args.key)?;
 
     if headers1 != headers2 {
-        eprintln!("Warning: header mismatch between files. Proceeding with file1's headers.");
+        eprintln!("Warning: header mismatch between files. Proceeding with column-name-based comparison.");
     }
+
+    // Create column index mappings for both files
+    let headers1_map: HashMap<String, usize> = headers1.iter().enumerate().map(|(i, h)| (h.clone(), i)).collect();
+    let headers2_map: HashMap<String, usize> = headers2.iter().enumerate().map(|(i, h)| (h.clone(), i)).collect();
 
     let mut diffs = Vec::new();
 
@@ -383,21 +387,44 @@ fn main() -> Result<(), Box<dyn Error>> {
     for key in all_keys {
         match (map1.get(key), map2.get(key)) {
             (Some(r1), Some(r2)) => {
-                for (i, col_name) in headers1.iter().enumerate() {
-                    if args.key.contains(col_name) || args.ignore.contains(col_name) {
+                // Get all unique column names from both files
+                let all_columns: HashSet<String> = headers1.iter().chain(headers2.iter()).cloned().collect();
+                
+                for col_name in all_columns {
+                    if args.key.contains(&col_name) || args.ignore.contains(&col_name) {
                         continue;
                     }
 
-                    let v1 = r1.get(i).unwrap_or("");
-                    let v2 = r2.get(i).unwrap_or("");
-                    if v1 != v2 {
-                        diffs.push(DiffRow {
-                            key: key.clone(),
-                            column: col_name.clone(),
-                            file1: v1.to_string(),
-                            file2: v2.to_string(),
-                        });
-                    }
+                    let v1 = headers1_map.get(&col_name).and_then(|&i| r1.get(i)).unwrap_or("");
+                    let v2 = headers2_map.get(&col_name).and_then(|&i| r2.get(i)).unwrap_or("");
+                    
+                    // Handle cases where column exists in only one file
+                    let (v1_display, v2_display) = match (headers1_map.contains_key(&col_name), headers2_map.contains_key(&col_name)) {
+                        (true, true) => {
+                            // Column exists in both files, compare values
+                            if v1 != v2 {
+                                (v1.to_string(), v2.to_string())
+                            } else {
+                                continue; // Values are the same, skip
+                            }
+                        },
+                        (true, false) => {
+                            // Column only exists in file1
+                            (v1.to_string(), "[column not in file2]".to_string())
+                        },
+                        (false, true) => {
+                            // Column only exists in file2
+                            ("[column not in file1]".to_string(), v2.to_string())
+                        },
+                        (false, false) => unreachable!(), // Column came from one of the files
+                    };
+
+                    diffs.push(DiffRow {
+                        key: key.clone(),
+                        column: col_name.clone(),
+                        file1: v1_display,
+                        file2: v2_display,
+                    });
                 }
             }
             (Some(r1), None) => {
