@@ -83,20 +83,33 @@ struct DiffRow {
     file2: String,
 }
 
-fn truncate_string(s: &str, max_width: usize) -> String {
-    if s.len() <= max_width {
-        s.to_string()
-    } else {
-        // Find a safe character boundary to truncate at
-        let mut end_idx = max_width.saturating_sub(3);
-        
-        // Ensure we don't slice in the middle of a UTF-8 character
-        while end_idx > 0 && !s.is_char_boundary(end_idx) {
-            end_idx -= 1;
-        }
-        
-        format!("{}...", &s[..end_idx])
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
     }
+    
+    // Find a safe UTF-8 character boundary
+    let mut truncate_at = max_len.saturating_sub(3); // Reserve space for "..."
+    while truncate_at > 0 && !s.is_char_boundary(truncate_at) {
+        truncate_at -= 1;
+    }
+    
+    format!("{}...", &s[..truncate_at])
+}
+
+fn truncate_for_excel(s: &str) -> String {
+    const EXCEL_MAX_CELL_LENGTH: usize = 32767;
+    if s.len() <= EXCEL_MAX_CELL_LENGTH {
+        return s.to_string();
+    }
+    
+    // Find a safe UTF-8 character boundary
+    let mut truncate_at = EXCEL_MAX_CELL_LENGTH.saturating_sub(3); // Reserve space for "..."
+    while truncate_at > 0 && !s.is_char_boundary(truncate_at) {
+        truncate_at -= 1;
+    }
+    
+    format!("{}...", &s[..truncate_at])
 }
 
 fn create_summary_table(diffs: Vec<DiffRow>, max_rows: usize, max_cell_width: usize, no_truncate: bool) -> String {
@@ -358,10 +371,10 @@ fn create_data_sheet(
     
     // Data rows
     for diff in diffs {
-        sheet.write(row, 0, &diff.key)?;
-        sheet.write(row, 1, &diff.column)?;
-        sheet.write(row, 2, &diff.file1)?;
-        sheet.write(row, 3, &diff.file2)?;
+        sheet.write(row, 0, &truncate_for_excel(&diff.key))?;
+        sheet.write(row, 1, &truncate_for_excel(&diff.column))?;
+        sheet.write(row, 2, &truncate_for_excel(&diff.file1))?;
+        sheet.write(row, 3, &truncate_for_excel(&diff.file2))?;
         row += 1;
     }
     
