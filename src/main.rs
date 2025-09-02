@@ -87,7 +87,15 @@ fn truncate_string(s: &str, max_width: usize) -> String {
     if s.len() <= max_width {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_width.saturating_sub(3)])
+        // Find a safe character boundary to truncate at
+        let mut end_idx = max_width.saturating_sub(3);
+        
+        // Ensure we don't slice in the middle of a UTF-8 character
+        while end_idx > 0 && !s.is_char_boundary(end_idx) {
+            end_idx -= 1;
+        }
+        
+        format!("{}...", &s[..end_idx])
     }
 }
 
