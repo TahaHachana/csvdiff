@@ -162,6 +162,11 @@ The tool is optimized for large datasets:
 
 ## Installation
 
+### From crates.io
+```bash
+cargo install csvdiff
+```
+
 ### From Source
 ```bash
 git clone https://github.com/TahaHachana/csvdiff.git
@@ -173,17 +178,6 @@ The binary will be available at `target/release/csvdiff`.
 
 ### Prerequisites
 - Rust 1.70 or later
-
-## Use Cases
-
-- **Data Migration Validation**: Compare datasets before and after migration
-- **API Response Comparison**: Validate data consistency across different API versions
-- **ETL Pipeline Testing**: Ensure data transformations preserve accuracy
-- **Database Synchronization**: Check differences between database exports
-- **Quality Assurance**: Verify data integrity after processing operations
-- **Business Reporting**: Generate professional Excel reports for stakeholders
-- **Audit Trails**: Document data changes with comprehensive Excel documentation
-- **Data Science Workflows**: Validate model training datasets and feature engineering
 
 ## Contributing
 

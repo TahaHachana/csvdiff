@@ -47,32 +47,37 @@ struct Args {
 fn read_csv_to_map(
     path: PathBuf,
     key_columns: &[String],
-) -> Result<(Vec<String>, HashMap<String, StringRecord>), Box<dyn Error>> {
+) -> Result<(Vec<String>, HashMap<String, StringRecord>, Vec<String>), Box<dyn Error>> {
     let mut rdr = ReaderBuilder::new().from_path(path)?;
     let headers = rdr.headers()?.clone();
 
-    let key_indexes: Vec<usize> = key_columns
-        .iter()
-        .map(|key| {
-            headers
-                .iter()
-                .position(|h| h == key)
-                .ok_or_else(|| format!("Key column '{}' not found", key))
-        })
-        .collect::<Result<_, _>>()?;
-
-    let mut map = HashMap::new();
-    for result in rdr.records() {
-        let record = result?;
-        let key_parts: Vec<&str> = key_indexes
-            .iter()
-            .map(|&i| record.get(i).unwrap_or(""))
-            .collect();
-        let key = key_parts.join("|");
-        map.insert(key, record);
+    let mut key_indexes = Vec::new();
+    let mut missing_keys = Vec::new();
+    
+    for key in key_columns {
+        if let Some(index) = headers.iter().position(|h| h == key) {
+            key_indexes.push(index);
+        } else {
+            missing_keys.push(key.clone());
+        }
     }
 
-    Ok((headers.iter().map(|s| s.to_string()).collect(), map))
+    let mut map = HashMap::new();
+    
+    // Only process records if we found all key columns
+    if missing_keys.is_empty() {
+        for result in rdr.records() {
+            let record = result?;
+            let key_parts: Vec<&str> = key_indexes
+                .iter()
+                .map(|&i| record.get(i).unwrap_or(""))
+                .collect();
+            let key = key_parts.join("|");
+            map.insert(key, record);
+        }
+    }
+
+    Ok((headers.iter().map(|s| s.to_string()).collect(), map, missing_keys))
 }
 
 #[derive(Tabled, Clone)]
@@ -110,6 +115,64 @@ fn truncate_for_excel(s: &str) -> String {
     }
     
     format!("{}...", &s[..truncate_at])
+}
+
+fn check_schema_match(headers1: &[String], headers2: &[String]) -> (bool, bool) {
+    // Check if headers content matches (regardless of order)
+    let set1: HashSet<&String> = headers1.iter().collect();
+    let set2: HashSet<&String> = headers2.iter().collect();
+    let headers_content_match = set1 == set2;
+    
+    // Check if headers and order are identical
+    let schema_identical = headers1 == headers2;
+    
+    (headers_content_match, schema_identical)
+}
+
+fn validate_keys_and_suggest_alternatives(
+    _key_columns: &[String],
+    missing_keys1: &[String],
+    missing_keys2: &[String],
+    headers1: &[String],
+    headers2: &[String],
+) -> Result<(), Box<dyn Error>> {
+    if missing_keys1.is_empty() && missing_keys2.is_empty() {
+        return Ok(());
+    }
+
+    eprintln!("❌ Error: Missing key columns detected");
+    
+    if !missing_keys1.is_empty() {
+        eprintln!("   File 1 is missing key columns: {}", missing_keys1.join(", "));
+    }
+    
+    if !missing_keys2.is_empty() {
+        eprintln!("   File 2 is missing key columns: {}", missing_keys2.join(", "));
+    }
+
+    // Suggest common columns that exist in both files
+    let common_columns: Vec<&String> = headers1
+        .iter()
+        .filter(|col| headers2.contains(col))
+        .collect();
+    
+    if !common_columns.is_empty() {
+        eprintln!("\n💡 Suggested alternative key columns (present in both files):");
+        for col in common_columns.iter().take(5) { // Limit suggestions to 5
+            eprintln!("   • {}", col);
+        }
+        if common_columns.len() > 5 {
+            eprintln!("   ... and {} more", common_columns.len() - 5);
+        }
+    } else {
+        eprintln!("\n⚠️  No common columns found between the files.");
+    }
+
+    eprintln!("\nAvailable columns:");
+    eprintln!("   File 1: {}", headers1.join(", "));
+    eprintln!("   File 2: {}", headers2.join(", "));
+
+    Err("Key validation failed. Please specify valid key columns that exist in both files.".into())
 }
 
 fn create_summary_table(diffs: Vec<DiffRow>, max_rows: usize, max_cell_width: usize, no_truncate: bool) -> String {
@@ -184,6 +247,8 @@ fn generate_excel_report(
     headers2: &[String],
     diffs: &[DiffRow],
     output_path: &str,
+    headers_content_match: bool,
+    schema_identical: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut workbook = Workbook::new();
     
@@ -195,7 +260,7 @@ fn generate_excel_report(
     let mut summary_sheet = workbook.add_worksheet();
     summary_sheet.set_name("Summary")?;
     
-    create_summary_sheet(&mut summary_sheet, file1_path, file2_path, headers1, headers2, diffs, &title_format, &header_format)?;
+    create_summary_sheet(&mut summary_sheet, file1_path, file2_path, headers1, headers2, diffs, headers_content_match, schema_identical, &title_format, &header_format)?;
     
     // Sheet 2: Headers Comparison  
     let mut headers_sheet = workbook.add_worksheet();
@@ -222,6 +287,8 @@ fn create_summary_sheet(
     headers1: &[String],
     headers2: &[String],
     diffs: &[DiffRow],
+    headers_content_match: bool,
+    schema_identical: bool,
     title_format: &Format,
     header_format: &Format,
 ) -> Result<(), Box<dyn Error>> {
@@ -256,8 +323,23 @@ fn create_summary_sheet(
     sheet.write(row, 1, headers2.len() as f64)?;
     row += 1;
     
-    sheet.write(row, 0, "Headers Match:")?;
-    sheet.write(row, 1, if headers1 == headers2 { "Yes" } else { "No" })?;
+    sheet.write(row, 0, "Headers Content Match:")?;
+    sheet.write(row, 1, if headers_content_match { "Yes" } else { "No" })?;
+    row += 1;
+    
+    sheet.write(row, 0, "Schema Identical:")?;
+    sheet.write(row, 1, if schema_identical { "Yes" } else { "No" })?;
+    row += 1;
+    
+    sheet.write(row, 0, "Schema Status:")?;
+    let schema_status = if schema_identical {
+        "Identical (same columns in same order)"
+    } else if headers_content_match {
+        "Partial Match (same columns, different order)"
+    } else {
+        "Mismatch (different columns)"
+    };
+    sheet.write(row, 1, schema_status)?;
     row += 2;
     
     // Difference breakdown
@@ -390,12 +472,24 @@ fn create_data_sheet(
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let (headers1, map1) = read_csv_to_map(args.file1.clone(), &args.key)?;
-    let (headers2, map2) = read_csv_to_map(args.file2.clone(), &args.key)?;
+    let (headers1, map1, missing_keys1) = read_csv_to_map(args.file1.clone(), &args.key)?;
+    let (headers2, map2, missing_keys2) = read_csv_to_map(args.file2.clone(), &args.key)?;
 
-    if headers1 != headers2 {
-        eprintln!("Warning: header mismatch between files. Proceeding with column-name-based comparison.");
+    // Validate keys and provide helpful error messages if keys are missing
+    validate_keys_and_suggest_alternatives(&args.key, &missing_keys1, &missing_keys2, &headers1, &headers2)?;
+
+    // Check schema compatibility
+    let (headers_content_match, schema_identical) = check_schema_match(&headers1, &headers2);
+    
+    // Report schema status
+    if schema_identical {
+        println!("✅ Schema Match: Headers are identical (same columns in same order)");
+    } else if headers_content_match {
+        println!("⚠️  Schema Partial Match: Same columns but different order");
+    } else {
+        println!("❌ Schema Mismatch: Different columns between files");
     }
+    println!(); // Add blank line for readability
 
     // Create column index mappings for both files
     let headers1_map: HashMap<String, usize> = headers1.iter().enumerate().map(|(i, h)| (h.clone(), i)).collect();
@@ -502,7 +596,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Generate Excel report if requested
     if let Some(excel_path) = &args.excel_output {
-        generate_excel_report(&args.file1, &args.file2, &headers1, &headers2, &diffs, excel_path)?;
+        generate_excel_report(&args.file1, &args.file2, &headers1, &headers2, &diffs, excel_path, headers_content_match, schema_identical)?;
     }
 
     Ok(())
