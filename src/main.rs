@@ -323,14 +323,6 @@ fn create_summary_sheet(
     sheet.write(row, 1, headers2.len() as f64)?;
     row += 1;
     
-    sheet.write(row, 0, "Headers Content Match:")?;
-    sheet.write(row, 1, if headers_content_match { "Yes" } else { "No" })?;
-    row += 1;
-    
-    sheet.write(row, 0, "Schema Identical:")?;
-    sheet.write(row, 1, if schema_identical { "Yes" } else { "No" })?;
-    row += 1;
-    
     sheet.write(row, 0, "Schema Status:")?;
     let schema_status = if schema_identical {
         "Identical (same columns in same order)"
